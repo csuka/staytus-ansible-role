@@ -5,7 +5,7 @@ Updating staytus is also possible.
 
 "[Staytus](https://staytus.co/) is a free, open source & beautiful status site that you can install on your own servers. It is a fully-loaded with all the features you'd expect from any site you might pay for."
 
-prerequisites
+Prerequisites
 -------------
 
  * Ensure [MySQL](https://github.com/geerlingguy/ansible-role-mysql) is installed
