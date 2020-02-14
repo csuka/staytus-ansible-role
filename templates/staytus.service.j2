@@ -1,0 +1,17 @@
+[Unit]
+Description=Procodile-Staytus
+After=network.target
+
+[Service]
+Type=forking
+KillMode=none
+
+ExecStart=/usr/local/bin/procodile start --root {{ staytus_install_path }}
+ExecStop=/usr/local/bin/procodile stop -s --wait --root {{ staytus_install_path }}
+
+User=root
+Group=root
+
+[Install]
+
+WantedBy=multi-user.target

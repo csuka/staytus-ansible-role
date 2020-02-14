@@ -1,0 +1,8 @@
+---
+staytus_db_pass: a_password
+staytus_user: staytus
+staytus_update: False
+staytus_home: /opt/staytus
+staytus_install_path: /opt/staytus/staytus
+staytus_centos_ruby_url: http://cache.ruby-lang.org/pub/ruby/2.5/ruby-2.5.1.tar.gz
+staytus_centos_ruby_version: 2.5.1

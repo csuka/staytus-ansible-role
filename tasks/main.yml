@@ -1,0 +1,222 @@
+---
+- name: staytus | fail if password is not changed
+  fail:
+    msg: 'Please change the db password'
+  when: staytus_db_pass == "a_password"
+
+- name: staytus | execute this block only when update is enabled
+  block:
+   - name: staytus | update project when update is enabled
+     shell: |
+       service staytus stop ;
+       git pull origin master ;
+       /usr/local/bin/bundle ;
+       /usr/local/bin/bundle exec rake staytus:build staytus:upgrade ;
+       service staytus start
+     args:
+        chdir: "{{ staytus_install_path }}"
+
+   - name: staytus | check health application
+     uri:
+       url: http://localhost:8787
+       follow_redirects: yes
+     register: health_check
+
+   - name: staytus | fail when status code is not 200
+     fail:
+       msg: "Status of application is not 200, please check"
+     when: health_check.status != 200
+
+   - name: staytus | end play when update is enabled
+     meta: end_play
+
+  when: staytus_update
+
+- name: staytus | execute this block when CentOS is used
+  block:
+    - name: staytus | verify which packages are installed
+      package_facts:
+        manager: auto
+
+    - name: staytus | install nodejs setup
+      shell: curl -sL https://rpm.nodesource.com/setup_10.x | bash -
+      when: "'nodejs' not in ansible_facts.packages"
+      args:
+        warn: False
+
+    - name: staytus | ensure required packages are installed if CentOS
+      yum:
+        name: ['git', 'openssl-devel', 'mariadb-libs', 'python3-pip', 'python-setuptools',
+               'openssl-libs', 'sqlite-devel', 'nodejs', '@development',
+               'zlib-devel', 'openssl-static', 'mysql-devel', 'python3']
+        state: present
+        update_cache: yes
+
+    - name: staytus | check whether ruby is installed
+      stat:
+        path: /usr/local/bin/ruby
+      register: ruby_check
+
+    - name: block to install ruby
+      block:
+        - name: staytus | get ruby
+          get_url:
+            url: "{{ staytus_centos_ruby_url }}"
+            dest: "/root/ruby-{{ staytus_centos_ruby_version }}.tar.gz"
+
+        - name: staytus | extract ruby package
+          unarchive:
+            src: "/root/ruby-{{ staytus_centos_ruby_version }}.tar.gz"
+            dest: "/root/"
+            copy: false
+
+        - name: staytus | compile/build ruby
+          command: >
+            {{ item }}
+            chdir=/root/ruby-{{ staytus_centos_ruby_version }}
+            creates=/usr/local/bin/ruby
+          with_items:
+            - "./configure --enable-shared"
+            - make
+            - make install
+
+        - name: staytus | ensure ruby symlinks are added
+          file:
+            src: "/usr/local/bin/{{ item }}"
+            dest: "/usr/bin/{{ item }}"
+            state: link
+            force: true
+          with_items:
+            - erb
+            - gem
+            - irb
+            - rake
+            - rdoc
+            - ruby
+
+        - name: staytus | add user installed RubyGems bin directory to global $PATH.
+          template:
+            src: rubygems.sh.j2
+            dest: /etc/profile.d/rubygems.sh
+            mode: "0644"
+      when: not ruby_check.stat.exists
+  when: ansible_distribution == 'CentOS'
+
+- name: staytus | ensure required packages are installed
+  apt:
+    name: ['ruby', 'ruby-dev', 'nodejs', 'git',
+           'build-essential', 'libmysqlclient-dev',
+           'python3-pip', 'libssl-dev', 'python3-venv']
+    state: present
+    update_cache: yes
+  when: not ansible_distribution == 'CentOS'
+
+- name: staytus | ensure PyMySQL is installed via pip3
+  pip:
+    name: PyMySQL
+    virtualenv: /tmp/py3
+    virtualenv_command: /usr/bin/python3 -m venv
+
+- name: staytus | add staytus user account
+  user:
+    name: "{{ staytus_user }}"
+    system: yes
+    shell: /bin/bash
+    home: "{{ staytus_home }}"
+    create_home: True
+
+- name: staytus | set staytus home folder 0775, so nginx and others can read it
+  file:
+    path: "{{ staytus_home }}"
+    mode: "0775"
+    owner: "{{ staytus_user }}"
+    group: "{{ staytus_user }}"
+
+- name: staytus | check whether git is already cloned
+  stat:
+    path: "{{ staytus_install_path }}/.git"
+  register: git_check
+
+- name: staytus | execute this block only when git is not cloned
+  block:
+    - name: staytus | ensure staytus dir exists
+      file:
+        path: "{{ staytus_install_path }}"
+        state: directory
+        owner: "{{ staytus_user }}"
+        group: "{{ staytus_user }}"
+        mode: "0775"
+
+    - name: staytus | clone git staytus repo
+      git:
+        repo: 'https://github.com/adamcooke/staytus'
+        dest: "{{ staytus_install_path }}"
+
+    - name: staytus | ensure user staytus and group nginx has access in the git repo
+      file:
+        path: "{{ staytus_install_path }}"
+        state: directory
+        owner: "{{ staytus_user }}"
+        group: "{{ staytus_user }}"
+        recurse: True
+        mode: "0775"
+
+  when: not git_check.stat.exists
+
+- name: staytus | check whether bundler is installed
+  stat:
+    path: /usr/local/bin/bundler
+  register: bundler_installed
+
+- name: staytus | execute this block only when it has not run once
+  block:
+    - name: staytus | install bundler and procodile
+      shell: "{{ item }}"
+      with_items:
+        - gem install -n /usr/local/bin bundler -v 1.17.3
+        - gem install procodile
+
+    - name: staytus | bundler install dependency packages
+      shell: /usr/local/bin/bundle install --deployment --without development:test
+      become_user: "{{ staytus_user }}"
+      args:
+        chdir: "{{ staytus_install_path }}"
+        warn: False
+
+    - name: staytus | copy template file for db connection
+      template:
+        src: database.yml.j2
+        dest: "{{ staytus_install_path }}/config/database.yml"
+        mode: "0775"
+        owner: "{{ staytus_user }}"
+        group: "{{ staytus_user }}"
+
+    - name: staytus | compile required assets
+      shell: /usr/local/bin/bundle exec rake staytus:build
+      become_user: "{{ staytus_user }}"
+      args:
+        chdir: "{{ staytus_install_path }}"
+
+    - name: staytus | populate database with initial schema
+      shell: /usr/local/bin/bundle exec rake staytus:install
+      become_user: "{{ staytus_user }}"
+      args:
+        chdir: "{{ staytus_install_path }}"
+
+  when: not bundler_installed.stat.exists
+
+- name: staytus | place staytus service file
+  template:
+    src: staytus.service.j2
+    dest: /etc/systemd/system/staytus.service
+    mode: "0644"
+    owner: root
+    group: root
+
+- name: staytus | ensure staytus is enabled and started
+  service:
+    name: staytus
+    state: "{{ item }}"
+    enabled: yes
+  with_items:
+    - started
