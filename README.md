@@ -10,8 +10,8 @@ Prerequisites
 
  * Ensure [MySQL](https://github.com/geerlingguy/ansible-role-mysql) is installed
  * Ensure [Nginx](https://github.com/nginxinc/ansible-role-nginx) is installed
- * On Ubuntu; move /etc/nginx/sites-available/default to another location
- * If SElinux is enabled, allow nginx networking `sudo setsebool -P httpd_can_network_connect true`
+ * On Ubuntu I had to move file `/etc/nginx/sites-available/default` to another location, else the default nginx page was shown
+ * If SElinux is enabled, allow nginx networking with: `sudo setsebool -P httpd_can_network_connect true`
 
 I've provided the vars I've used for the nginx and mysql roles below.
 
